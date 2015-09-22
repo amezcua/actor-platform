@@ -3,10 +3,13 @@
 //
 
 import UIKit
+import MessageUI
 
-class AuthCodeViewController: AuthViewController, UIAlertViewDelegate {
+class AuthCodeViewController: AuthViewController, UIAlertViewDelegate, MFMailComposeViewControllerDelegate {
 
     // Views
+    
+    private static let DIAL_SECONDS: Int = 60
     
     private let grayBackground = UIView()
     private let titleLabel = UILabel()
@@ -14,15 +17,23 @@ class AuthCodeViewController: AuthViewController, UIAlertViewDelegate {
     private let codeTextField = UITextField()
     private let hintLabel = UILabel()
     private let callHintLabel = UILabel()
+    private let callActionLabel = UIButton()
     
     private var navigationBarSeparator = UIView()
     private var codeSeparator = UIView()
     
     private var counterTimer: NSTimer!
     private var dialed: Bool = false
-    private var counter: Int = 60
+    private var counter = AuthCodeViewController.DIAL_SECONDS
+    
+    private let phoneNumber: String
+    private let supportEnabled: Bool
     
     init(phoneNumber: String) {
+        
+        self.phoneNumber = phoneNumber
+        self.supportEnabled = AppConfig.activationEmail != nil || AppConfig.supportEmail != nil
+        
         super.init()
         
         grayBackground.backgroundColor = UIColor.RGB(0xf2f2f2)
@@ -67,8 +78,15 @@ class AuthCodeViewController: AuthViewController, UIAlertViewDelegate {
         callHintLabel.textColor = UIColor.alphaBlack(0.64)
         callHintLabel.textAlignment = NSTextAlignment.Center
         callHintLabel.contentMode = UIViewContentMode.Center
-        callHintLabel.numberOfLines = 0
+        callHintLabel.numberOfLines = 1
         view.addSubview(callHintLabel)
+        
+        callActionLabel.titleLabel?.font = UIFont.systemFontOfSize(16)
+        callActionLabel.setTitleColor(UIColor.RGB(0x5085CB), forState: .Normal)
+        callActionLabel.setTitle(localized("AuthNoCodeHint"), forState: .Normal)
+        callActionLabel.hidden = true
+        callActionLabel.addTarget(self, action: "noCodeDidPressed", forControlEvents: .TouchUpInside)
+        view.addSubview(callActionLabel)
         
         view.backgroundColor = UIColor.whiteColor()
         
@@ -138,7 +156,9 @@ class AuthCodeViewController: AuthViewController, UIAlertViewDelegate {
         let hintLabelSize = hintLabel.sizeThatFits(CGSize(width: 300, height: screenSize.height))
         hintLabel.frame = CGRectIntegral(CGRect(x: (screenSize.width - hintLabelSize.width) / 2, y: navigationBarSeparator.frame.origin.y + (isWidescreen ? 85.0 : 70.0), width: hintLabelSize.width, height: hintLabelSize.height))
         
-        callHintLabel.frame = CGRectIntegral(CGRect(x: (screenSize.width - hintLabelSize.width) / 2, y: hintLabel.bottom, width: hintLabelSize.width, height: 44))
+        callHintLabel.frame = CGRectIntegral(CGRect(x: (screenSize.width - hintLabelSize.width) / 2, y: hintLabel.bottom + 11, width: hintLabelSize.width, height: 22))
+        
+        callActionLabel.frame = CGRectIntegral(CGRect(x: (screenSize.width - hintLabelSize.width) / 2, y: callHintLabel.bottom + 5, width: hintLabelSize.width, height: 22))
     }
     
     func updateTimer() {
@@ -152,7 +172,7 @@ class AuthCodeViewController: AuthViewController, UIAlertViewDelegate {
                 counterTimer = nil
             }
             
-            // TODO: Implement calling invoke
+            executeHidden(Actor.requestPhoneCall())
         }
      
         updateTimerText()
@@ -161,11 +181,18 @@ class AuthCodeViewController: AuthViewController, UIAlertViewDelegate {
     func updateTimerText() {
         if dialed {
             callHintLabel.textLocalized = "AuthCallDoneHint"
+            if self.supportEnabled {
+                callActionLabel.hidden = false
+            }
         } else {
-            let minutes = counter.format("02")
-            let time = "0:\(minutes)"
+            let min = counter / 60
+            let sec = counter % 60
+            let minFormatted = min.format("02")
+            let secFormatted = sec.format("02")
+            let time = "\(minFormatted):\(secFormatted)"
             callHintLabel.text = localized("AuthCallHint")
                 .replace("{time}", dest: time)
+            callActionLabel.hidden = true
         }
     }
     
@@ -201,5 +228,24 @@ class AuthCodeViewController: AuthViewController, UIAlertViewDelegate {
         } else {
             shakeView(codeTextField, originalX: codeTextField.frame.origin.x)
         }
+    }
+    
+    func noCodeDidPressed() {
+        let emailController = MFMailComposeViewController()
+        emailController.setSubject("Activation code problem (\(phoneNumber))")
+        if AppConfig.activationEmail != nil {
+            emailController.setToRecipients([AppConfig.activationEmail!])
+        } else if AppConfig.supportEmail != nil {
+            emailController.setToRecipients([AppConfig.supportEmail!])
+        } else {
+            fatalError("Support emails not set")
+        }
+        emailController.setMessageBody("Hello, Dear Support!\n\nI can't receive any activation codes to the phone: \(phoneNumber).\n\nHope, you will answer soon. Thank you!", isHTML: false)
+        emailController.delegate = self
+        presentViewController(emailController, animated: true, completion: nil)
+    }
+    
+    func mailComposeController(controller: MFMailComposeViewController, didFinishWithResult result: MFMailComposeResult, error: NSError?) {
+        controller.dismissViewControllerAnimated(false, completion: nil)
     }
 }
